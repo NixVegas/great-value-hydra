@@ -8,16 +8,19 @@
   outputs = inputs: with inputs;
     let
       inherit (builtins) concatStringsSep concatMap deepSeq filter hashString substring tryEval;
-      inherit (nixpkgs-stable.lib) attrsets isDerivation strings;
+      inherit (nixpkgs-stable.lib) attrsets isAttrs isDerivation strings;
       hostPkgs = nixpkgs-stable.legacyPackages.aarch64-linux;
       # isDerivation, but returns false on eval failure
       # NB: value attribute is just 'false' if tryEval encounters an exception
-      isWellBehavedDerivation = x: isDerivation (tryEval (deepSeq x x)).value;
+      isWellBehavedDerivationOrAttrs = x:
+        let x' = (tryEval (deepSeq x x)).value;
+         in isDerivation x' || isAttrs x';
 
       # Hydra jobs for all of nixpkgs
       hydraReleaseJobsFor = system:
         import "${inputs.nixpkgs-stable}/pkgs/top-level/release.nix" {
           supportedSystems = [system];
+          scrubJobs = false;
           nixpkgsArgs = {
             config.inHydra = false; # ???
             config.allowUnfree = true;
@@ -46,7 +49,9 @@
       # a little weird, dude
       allNixpkgsFor = {target, host ? target, bucket}:
         attrsets.filterAttrsRecursive
-          (name: value: (hashBucket name == bucket) && (isWellBehavedDerivation value))
+          (name: value:
+            (hashBucket name == bucket) &&
+            (isWellBehavedDerivationOrAttrs value))
           (hydraReleaseJobsFor target);
 
       # Produces a derivation that has a runtime dependency on every package for a given
@@ -58,11 +63,16 @@
             concatStringsSep
               "\n"
               (map
-                (pkg: toString (pkg.${system}))
+                #(pkg: toString (pkg.${target})) # FIXME HERE
+                #(pkg: hostPkgs.lib.trace (attrsets.attrNames pkg) (toString (pkg.${target}))) # FIXME HERE
+                (pkg: hostPkgs.lib.trace pkg (toString (pkg.${target}))) # FIXME HERE
                 (attrsets.attrValues (allNixpkgsFor args)));
           allowSubstitutes = true;
         };
     in {
+      # This checks out
+      passthru = allNixpkgsFor { target = "aarch64-linux"; bucket = "00"; };
+
       packages.aarch64-linux =
         attrsets.genAttrs
           buckets
@@ -81,7 +91,7 @@
           ${concatStringsSep
             "\n"
             (map
-              (bucket: "nix build ${toString self}#${bucket} --out-link aarch64-linux-${bucket} --system aarch64-linux")
+              (bucket: "nix build '${toString self}#${bucket}' --out-link 'aarch64-linux-${bucket}' --system aarch64-linux")
               buckets)}
         '';
           runtimeInputs = [hostPkgs.nix];

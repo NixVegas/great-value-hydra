@@ -52,12 +52,15 @@
       getPackagePaths = pkgs: attrsets.attrNames (getPackagePathSet pkgs);
 
     in {
+      passthru.packages.aarch64-linux = import nixpkgs-stable {
+        system = "aarch64-linux";
+        config.allowUnfree = true;
+      };
+
       packages.aarch64-linux.cacheArmPkgs = hostPkgs.writeShellScript
         "cacheArmPkgs"
         (let
-           packagePaths = getPackagePaths
-             (import nixpkgs-stable { system = "aarch64-linux"; allowUnfree = true; });
-           x = null;
+           packagePaths = getPackagePaths self.passthru.packages.aarch64-linux;
          in ''
          CACHE_GCROOTS_DIR=$1
          if [[ -z "$CACHE_GCROOTS_DIR" ]]; then
@@ -72,7 +75,7 @@
          ${concatStringsSep
              "\n"
              (map
-               (path: "nix build '${nixpkgs-stable}#legacyPackages.aarch64-linux.${path}' --out-link \"$CACHE_GCROOTS_DIR/aarch64-linux/${path}\" --max-jobs 0 --builders \"\" || true")
+               (path: "nix build '${self}#passthru.packages.aarch64-linux.${path}' --out-link \"$CACHE_GCROOTS_DIR/aarch64-linux/${path}\" --max-jobs 0 --builders \"\" || true")
                packagePaths)}
          '');
 

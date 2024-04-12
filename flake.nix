@@ -1,5 +1,5 @@
 {
-  description = "";
+  description = "look ma, no hydra :3";
   inputs = {
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-23.11";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/master";
@@ -7,96 +7,78 @@
 
   outputs = inputs: with inputs;
     let
-      inherit (builtins) concatStringsSep concatMap deepSeq filter hashString substring tryEval;
+      inherit (builtins) concatStringsSep concatMap deepSeq filter hashString seq substring tryEval;
       inherit (nixpkgs-stable.lib) attrsets isAttrs isDerivation strings;
       hostPkgs = nixpkgs-stable.legacyPackages.aarch64-linux;
-      # isDerivation, but returns false on eval failure
+
+      # isDerivation + isAttrs, but returns false on eval failure
       # NB: value attribute is just 'false' if tryEval encounters an exception
       isWellBehavedDerivationOrAttrs = x:
-        let x' = (tryEval (deepSeq x x)).value;
+        let x' = (tryEval (seq (x ? name) x)).value;
          in isDerivation x' || isAttrs x';
 
-      # Hydra jobs for all of nixpkgs
-      hydraReleaseJobsFor = system:
-        import "${inputs.nixpkgs-stable}/pkgs/top-level/release.nix" {
-          supportedSystems = [system];
-          scrubJobs = false;
-          nixpkgsArgs = {
-            config.inHydra = false; # ???
-            config.allowUnfree = true;
-          };
-        };
-
-      # HACK: The rpi is memory-constrained. Don't try to build everything at once.
-      # Instead, hash-bucket packages by attr names and operate on each hash bucket
-      # independently to reduce peak memory usage.
-      hashBucket = name: substring 0 2 (hashString "sha256" name);
-      buckets =
+      # :: attrset -> attrset
+      # Takes a package set, spits out a shallow set mapping derivation attribute paths
+      # onto empty sets.
+      getPackagePathSet =
         let
-          alphabet =
-            filter
-              (str: str != "")
-              (strings.splitString "" "0123456789abcdef");
+          shouldDescend = attrs: attrs.recurseForDerivations or false;
+          # All attributes of pkgs are either:
+          # - derivations (we want these)
+          # - attrsets with things we want (we want these)
+          # - crap (everything else, which we don't want)
+          categorize = thing:
+            if !(isWellBehavedDerivationOrAttrs thing) then "crap" else
+            if isAttrs thing && shouldDescend thing    then "subset" else
+            if isDerivation thing                      then "drv"
+            else                                            "crap";
+          handlers = {
+            # Throw away:
+            crap = _: _: {};
+            # Remember derivations' names, throw away contents to save memory:
+            drv = name: drv: { ${name} = {}; };
+            # Recurse into subsets, prepending name:
+            subset = name: subPkgs:
+              attrsets.mapAttrs'
+                (subName: subValue: { name = "${name}.${subName}"; value = {}; })
+                (getPackagePathSet subPkgs);
+          };
+          tryExtractPackages = name: value:
+            handlers.${categorize value} name value;
         in
-          concatMap
-            (c1:
-              (map (c2: "${c1}${c2}") alphabet))
-              alphabet;
+          attrsets.concatMapAttrs tryExtractPackages;
 
-      # Everything that hydra would build, except that we exclude any packages that
-      # we can't evaluate on the system in question
-      # TODO: Name this better; it includes a .${system} attribute afterwards and that's
-      # a little weird, dude
-      allNixpkgsFor = {target, host ? target, bucket}:
-        attrsets.filterAttrsRecursive
-          (name: value:
-            (hashBucket name == bucket) &&
-            (isWellBehavedDerivationOrAttrs value))
-          (hydraReleaseJobsFor target);
+      # Extracts a list of attr paths to all packages in the provided set
+      getPackagePaths = pkgs: attrsets.attrNames (getPackagePathSet pkgs);
 
-      # Produces a derivation that has a runtime dependency on every package for a given
-      # system.
-      giganticHideousSuperDerivationFor = {target, host ? target, bucket}@args:
-        nixpkgs-stable.legacyPackages.aarch64-linux.writeTextFile {
-          name = "everything-for-${target}";
-          text =
-            concatStringsSep
-              "\n"
-              (map
-                #(pkg: toString (pkg.${target})) # FIXME HERE
-                #(pkg: hostPkgs.lib.trace (attrsets.attrNames pkg) (toString (pkg.${target}))) # FIXME HERE
-                (pkg: hostPkgs.lib.trace pkg (toString (pkg.${target}))) # FIXME HERE
-                (attrsets.attrValues (allNixpkgsFor args)));
-          allowSubstitutes = true;
-        };
     in {
-      # This checks out
-      passthru = allNixpkgsFor { target = "aarch64-linux"; bucket = "00"; };
+      packages.aarch64-linux.cacheArmPkgs = hostPkgs.writeShellScript
+        "cacheArmPkgs"
+        (let
+           packagePaths = getPackagePaths
+             (import nixpkgs-stable { system = "aarch64-linux"; allowUnfree = true; });
+           x = null;
+         in ''
+         CACHE_GCROOTS_DIR=$1
+         if [[ -z "$CACHE_GCROOTS_DIR" ]]; then
+           CACHE_GCROOTS_DIR=$(pwd)
+         fi
+         set -euo pipefail
 
-      packages.aarch64-linux =
-        attrsets.genAttrs
-          buckets
-          (bucket: giganticHideousSuperDerivationFor {
-            inherit bucket;
-            target = "aarch64-linux";
-          });
+         echo "Caching to $CACHE_GCROOTS_DIR"
+         mkdir -p "$CACHE_GCROOTS_DIR/aarch64-linux"
+         sleep 1
+         echo "RIP your cellular plan..."
+         ${concatStringsSep
+             "\n"
+             (map
+               (path: "nix build '${nixpkgs-stable}#legacyPackages.aarch64-linux.${path}' --out-link \"$CACHE_GCROOTS_DIR/aarch64-linux/${path}\" --max-jobs 0 --builders \"\" || true")
+               packagePaths)}
+         '');
 
-      # Auto-builds all arm package buckets and creates gcroots for them in current dir
       apps.aarch64-linux.cacheArmPkgs = {
         type = "app";
-        program = hostPkgs.writeShellApplication {
-          name = "cacheArmPkgs";
-          text = ''
-          echo "RIP your cellular plan"
-          ${concatStringsSep
-            "\n"
-            (map
-              (bucket: "nix build '${toString self}#${bucket}' --out-link 'aarch64-linux-${bucket}' --system aarch64-linux")
-              buckets)}
-        '';
-          runtimeInputs = [hostPkgs.nix];
-        };
+        program = self.packages.aarch64-linux.cacheArmPkgs;
       };
-
   };
 }

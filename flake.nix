@@ -1,5 +1,5 @@
 {
-  description = "look ma, no hydra :3";
+  description = "we have hydra at home :3";
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-23.11";
     flake-utils.url = "github:numtide/flake-utils";

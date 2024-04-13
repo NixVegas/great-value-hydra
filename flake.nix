@@ -71,14 +71,17 @@
 
       # Extracts a list of attr paths to all packages in the provided set
       getPackagePaths = pkgs: attrsets.attrNames (getPackagePathSet pkgs);
+      pathsListFor = system: hostPkgs.writeTextFile {
+        name = "cache-paths-list";
+        text = concatStringsSep "\n" (getPackagePaths self.legacyPackages.${system});
+      };
 
-      # Generate a script to download every well-behaved package for a given system
-      # TODO: Add a little concurrency, this is excruciatingly slow
+      # Generate a script to download every well-behaved package for a given system.
+      # 3 tasks b/c that's what works well on the pi
       cacheDownloadScriptFor = system:
         hostPkgs.writeShellScript
           "cache-pkgs"
-          (let packagePaths = getPackagePaths self.legacyPackages.${system};
-           in ''
+          ''
            CACHE_GCROOTS_DIR=$1
            if [[ -z "$CACHE_GCROOTS_DIR" ]]; then
              CACHE_GCROOTS_DIR=$(pwd)
@@ -89,12 +92,12 @@
            mkdir -p "$CACHE_GCROOTS_DIR/${system}"
            sleep 1
            echo "RIP your cellular plan..."
-           ${concatStringsSep
-               "\n"
-               (map
-                 (path: "nix build '${self}#legacyPackages.${system}.${path}' --out-link \"$CACHE_GCROOTS_DIR/${system}/${path}\" --max-jobs 0 --builders \"\" || true")
-                 packagePaths)}
-           '');
+           <${pathsListFor system} ${hostPkgs.parallel}/bin/parallel  -j3 \
+             nix build '${self}#legacyPackages.${system}.{}' \
+             --out-link "$CACHE_GCROOTS_DIR/${system}/{}" \
+             --max-jobs 0 \
+             --builders '""' || true
+           '';
     in {
       # legacyPackages exposed to give the cache download scripts an easy way to use the package
       # sets that they were built from

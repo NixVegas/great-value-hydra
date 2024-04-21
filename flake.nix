@@ -78,6 +78,8 @@
 
       # Generate a script to download every well-behaved package for a given system.
       # 3 tasks b/c that's what works well on the pi
+      # TODO: Would be nice to use --keep-going to cut down on eval times, but it doesn't handle eval failure
+      # TODO: Can we use 'preferLocalBuild' to pick out things that we should allow a job for?
       cacheDownloadScriptFor = system:
         hostPkgs.writeShellScript
           "cache-pkgs"
@@ -92,10 +94,14 @@
            mkdir -p "$CACHE_GCROOTS_DIR/${system}"
            sleep 1
            echo "RIP your cellular plan..."
-           <${pathsListFor system} ${hostPkgs.parallel}/bin/parallel  -j3 \
+           <${pathsListFor system} ${hostPkgs.parallel}/bin/parallel \
+             --bar --eta \
+             -j3 \
              nix build '${self}#legacyPackages.${system}.{}' \
              --out-link "$CACHE_GCROOTS_DIR/${system}/{}" \
              --max-jobs 0 \
+             --use-sqlite-wal \
+             --quiet \
              --builders '""' || true
            '';
     in {

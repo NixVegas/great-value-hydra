@@ -2,6 +2,7 @@
   description = "we have hydra at home :3";
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-23.11";
+    nixpkgs-master.url = "github:nixos/nixpkgs/master";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -71,16 +72,17 @@
 
       # Extracts a list of attr paths to all packages in the provided set
       getPackagePaths = pkgs: attrsets.attrNames (getPackagePathSet pkgs);
-      pathsListFor = system: hostPkgs.writeTextFile {
+      pathsListFor = system: nixpkgs: hostPkgs.writeTextFile {
         name = "cache-paths-list";
-        text = concatStringsSep "\n" (getPackagePaths self.legacyPackages.${system});
+        text = concatStringsSep "\n" (getPackagePaths nixpkgs.legacyPackages.${system});
       };
 
       # Generate a script to download every well-behaved package for a given system.
       # 3 tasks b/c that's what works well on the pi
       # TODO: Would be nice to use --keep-going to cut down on eval times, but it doesn't handle eval failure
-      # TODO: Can we use 'preferLocalBuild' to pick out things that we should allow a job for?
-      cacheDownloadScriptFor = system:
+      # TODO: Can we use 'preferLocalBuild' to pick out things that we should allow a job for? And maybe
+      # set a deadline?
+      cacheDownloadScriptFor = system: nixpkgs:
         hostPkgs.writeShellScript
           "cache-pkgs"
           ''
@@ -94,7 +96,7 @@
            mkdir -p "$CACHE_GCROOTS_DIR/${system}"
            sleep 1
            echo "RIP your cellular plan..."
-           <${pathsListFor system} ${hostPkgs.parallel}/bin/parallel \
+           <${pathsListFor system nixpkgs} nice -n 10 ${hostPkgs.parallel}/bin/parallel \
              --bar --eta \
              -j3 \
              nix build '${self}#legacyPackages.${system}.{}' \
@@ -102,6 +104,7 @@
              --max-jobs 0 \
              --use-sqlite-wal \
              --quiet \
+             --override-input nixpkgs "${nixpkgs}"
              --builders '""' || true
            '';
     in {
@@ -114,8 +117,10 @@
 
       # Scripts to download everything, make GC roots
       packages = {
-        cacheArmPkgs = cacheDownloadScriptFor "aarch64-linux";
-        cacheX86Pkgs = cacheDownloadScriptFor "x86_64-linux";
+        cacheArmPkgs = cacheDownloadScriptFor "aarch64-linux" nixpkgs;
+        cacheX86Pkgs = cacheDownloadScriptFor "x86_64-linux" nixpkgs;
+        cacheSpicyArmPkgs = cacheDownloadScriptFor "aarch64-linux" nixpkgs-master;
+        cacheSpicyX86Pkgs = cacheDownloadScriptFor "x86_64-linux" nixpkgs-master;
       };
 
       apps =
@@ -123,6 +128,8 @@
         in with self.packages.${system}; {
           cacheArmPkgs = mkApp cacheArmPkgs;
           cacheX86Pkgs = mkApp cacheX86Pkgs;
+          cacheSpicyArmPkgs = mkApp cacheSpicyArmPkgs;
+          cacheSpicyX86Pkgs = mkApp cacheSpicyX86Pkgs;
         };
   });
 }

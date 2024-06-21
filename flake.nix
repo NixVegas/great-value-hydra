@@ -1,7 +1,7 @@
 {
   description = "we have hydra at home :3";
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-23.11";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
     nixpkgs-master.url = "github:nixos/nixpkgs/master";
     flake-utils.url = "github:numtide/flake-utils";
   };
@@ -90,22 +90,22 @@
            if [[ -z "$CACHE_GCROOTS_DIR" ]]; then
              CACHE_GCROOTS_DIR=$(pwd)
            fi
+           SHORT_NIX_VSN="${builtins.substring 0 5 hostPkgs.lib.version}"
            set -euo pipefail
 
            echo "Caching to $CACHE_GCROOTS_DIR"
-           mkdir -p "$CACHE_GCROOTS_DIR/${system}"
+           mkdir -p "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}"
            sleep 1
            echo "RIP your cellular plan..."
            <${pathsListFor system nixpkgs} nice -n 10 ${hostPkgs.parallel}/bin/parallel \
              --bar --eta \
              -j3 \
              nix build '${self}#legacyPackages.${system}.{}' \
-             --out-link "$CACHE_GCROOTS_DIR/${system}/{}" \
+             --out-link "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/{}" \
              --max-jobs 0 \
              --use-sqlite-wal \
              --quiet \
-             --override-input nixpkgs "${nixpkgs}"
-             --builders '""' || true
+             --override-input nixpkgs "${nixpkgs}" || true
            '';
     in {
       # legacyPackages exposed to give the cache download scripts an easy way to use the package

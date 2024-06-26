@@ -58,7 +58,7 @@
            <$DRVINFO \
            nice -n 20 ${hostPkgs.parallel}/bin/parallel \
              --bar --eta \
-             -j4 \
+             -j3 \
              ${runNixJob} '{}'
 
            popd

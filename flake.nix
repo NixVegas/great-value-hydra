@@ -12,76 +12,20 @@
       inherit (builtins) concatStringsSep concatMap filter seq tryEval;
       inherit (nixpkgs.lib) attrsets isAttrs isDerivation strings;
       hostPkgs = nixpkgs.legacyPackages.${system};
+      runNixJob = hostPkgs.writeShellScript "run-nix-job"
+        ''
+        JSON_LINE="$@"
+        JOB_ATTR=$(cat "$JSON_LINE" | jq '.attr')
+        JOB_DRV=$(cat "$JSON_LINE" | jq '.drvPath')
 
-      # Check a package's meta attribute, throwing an error if it's not compatible with
-      # the current system. This is the same check that stdenv.mkDerivation uses to raise
-      # broken package / unsupported system / etc. errors.
-      assertValidPkg =
-        let
-          assertValidity = (import "${nixpkgs}/pkgs/stdenv/generic/check-meta.nix" {
-            config = hostPkgs.config // {
-              # Don't assemble friendly error messages; we're ignoring them
-              inHydra = true;
-            };
-            lib = nixpkgs.lib;
-            hostPlatform = hostPkgs.hostPlatform;
-          }).assertValidity;
-        in pkg:
-          assertValidity {
-            meta = pkg.meta or {};
-            attrs = pkg;
-          };
+        nix build \
+          "$JOB_DRV^*" \
+          --out-link "./$JOB_ATTR" \
+          --max-jobs 0 \
+          --use-sqlite-wal \
+          --quiet || true
+        '';
 
-      # isDerivation + isAttrs, but returns false if the derivation is broken, incompatible,
-      # insecure, etc., as determined by the same .meta-based criteria used by
-      # stdenv.mkDerivation.
-      isWellBehavedDerivationOrAttrs = x:
-        # NB: .value on tryEval output is 'false' if tryEval encounters an exception
-        let x' = (tryEval (seq (assertValidPkg x) x)).value;
-         in isDerivation x' || isAttrs x';
-
-      # :: attrset -> attrset
-      # Takes a package set, returns a shallow set mapping derivation attribute paths
-      # onto empty sets.
-      getPackagePathSet =
-        let
-          shouldDescend = attrs: attrs.recurseForDerivations or false;
-          # All attributes of pkgs are either:
-          # - derivations (we want these)
-          # - attrsets containing things we want (we want these)
-          # - crap (everything else, which we don't want)
-          categorize = thing:
-            if !(isWellBehavedDerivationOrAttrs thing) then "crap" else
-            if isAttrs thing && shouldDescend thing    then "subset" else
-            if isDerivation thing                      then "drv"
-            else                                            "crap";
-          handlers = {
-            # Throw away:
-            crap = _: _: {};
-            # Remember derivations' names, throw away contents to save memory:
-            drv = name: drv: { ${name} = {}; };
-            # Recurse into package subsets, prepending subset's name to attrpath:
-            subset = subsetName: subset:
-              attrsets.mapAttrs'
-                (pkgName: subValue: { name = "${subsetName}.${pkgName}"; value = {}; })
-                (getPackagePathSet subset);
-          };
-          tryExtractPackages = name: value: handlers.${categorize value} name value;
-        in
-          attrsets.concatMapAttrs tryExtractPackages;
-
-      # Extracts a list of attr paths to all packages in the provided set
-      getPackagePaths = pkgs: attrsets.attrNames (getPackagePathSet pkgs);
-      pathsListFor = system: nixpkgs: hostPkgs.writeTextFile {
-        name = "cache-paths-list";
-        text = concatStringsSep "\n" (getPackagePaths nixpkgs.legacyPackages.${system});
-      };
-
-      # Generate a script to download every well-behaved package for a given system.
-      # 3 tasks b/c that's what works well on the pi
-      # TODO: Would be nice to use --keep-going to cut down on eval times, but it doesn't handle eval failure
-      # TODO: Can we use 'preferLocalBuild' to pick out things that we should allow a job for? And maybe
-      # set a deadline?
       cacheDownloadScriptFor = system: nixpkgs:
         hostPkgs.writeShellScript
           "cache-pkgs"
@@ -96,17 +40,28 @@
            echo "Caching to $CACHE_GCROOTS_DIR"
            mkdir -p "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}"
            sleep 1
-           echo "RIP your cellular plan..."
-           <${pathsListFor system nixpkgs} nice -n 10 ${hostPkgs.parallel}/bin/parallel \
+
+           DRVINFO=$(mktemp)
+           echo "Evaluating package set and dumping info to $DRVINFO"
+
+           ${hostPkgs.nix-eval-jobs}/bin/nix-eval-jobs \
+             --flake '${nixpkgs}#legacyPackages.${system}' \
+             --gc-roots-dir "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/{}" \
+             --workers 1 >"$DRVINFO" 2>/dev/null || true
+
+           pushd .
+           cd "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}"
+
+           <$DRVINFO \
+           nice -n 20 ${hostPkgs.parallel}/bin/parallel \
              --bar --eta \
-             -j3 \
-             nix build '${self}#legacyPackages.${system}.{}' \
-             --out-link "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/{}" \
-             --max-jobs 0 \
-             --use-sqlite-wal \
-             --quiet \
-             --override-input nixpkgs "${nixpkgs}" || true
+             -j4 \
+             ${runNixJob}/bin/run-nix-job '{}'
+
+           popd
+           rm $DRVINFO
            '';
+
     in {
       # legacyPackages exposed to give the cache download scripts an easy way to use the package
       # sets that they were built from

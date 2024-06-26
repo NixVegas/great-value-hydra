@@ -15,13 +15,14 @@
       runNixJob = hostPkgs.writeShellScript "run-nix-job"
         ''
         JSON_LINE="$@"
-        JOB_ATTR=$(cat "$JSON_LINE" | jq '.attr')
-        JOB_DRV=$(cat "$JSON_LINE" | jq '.drvPath')
+        JOB_ATTR=$(jq -r '.attr' <<< "$JSON_LINE")
+        JOB_DRV=$(jq -r '.drvPath' <<< "$JSON_LINE")
 
         nix build \
-          "$JOB_DRV^*" \
-          --out-link "./$JOB_ATTR" \
+          "''${JOB_DRV}^*" \
+          --out-link "$JOB_ATTR" \
           --max-jobs 0 \
+          --impure \
           --use-sqlite-wal \
           --quiet || true
         '';
@@ -46,8 +47,10 @@
 
            ${hostPkgs.nix-eval-jobs}/bin/nix-eval-jobs \
              --flake '${nixpkgs}#legacyPackages.${system}' \
+             --impure \
              --gc-roots-dir "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/{}" \
-             --workers 1 >"$DRVINFO" 2>/dev/null || true
+             --max-memory-size 2048 \
+             --workers 2 >"$DRVINFO" 2>/dev/null || true
 
            pushd .
            cd "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}"
@@ -56,7 +59,7 @@
            nice -n 20 ${hostPkgs.parallel}/bin/parallel \
              --bar --eta \
              -j4 \
-             ${runNixJob}/bin/run-nix-job '{}'
+             ${runNixJob} '{}'
 
            popd
            rm $DRVINFO

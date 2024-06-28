@@ -38,9 +38,11 @@
            SHORT_NIX_VSN="${builtins.substring 0 5 hostPkgs.lib.version}"
            set -euo pipefail
 
-           echo "Caching to $CACHE_GCROOTS_DIR"
-           mkdir -p "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}"
-           sleep 1
+           echo "Caching to $CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/..."
+           BUILT_GCROOTS_DIR="$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/built"
+           DRV_GCROOTS_DIR="$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/drvs"
+
+           mkdir -p "$BUILT_GCROOTS_DIR" "$DRV_GCROOTS_DIR"
 
            DRVINFO=$(mktemp)
            echo "Evaluating package set and dumping info to $DRVINFO"
@@ -48,12 +50,14 @@
            ${hostPkgs.nix-eval-jobs}/bin/nix-eval-jobs \
              --flake '${nixpkgs}#legacyPackages.${system}' \
              --impure \
-             --gc-roots-dir "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/{}" \
-             --max-memory-size 2048 \
-             --workers 2 >"$DRVINFO" 2>/dev/null || true
+             --gc-roots-dir "$DRV_GCROOTS_DIR" \
+             --max-memory-size 2304 \
+             --workers 2 \
+           | jq -rc 'select(.error == null)' \
+             >"$DRVINFO" 2>/dev/null || true
 
            pushd .
-           cd "$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}"
+           cd "$BUILT_GCROOTS_DIR"
 
            <$DRVINFO \
            nice -n 20 ${hostPkgs.parallel}/bin/parallel \

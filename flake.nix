@@ -1,7 +1,7 @@
 {
   description = "we have hydra at home :3";
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
     nixpkgs-master.url = "github:nixos/nixpkgs/master";
     flake-utils.url = "github:numtide/flake-utils";
   };
@@ -52,7 +52,7 @@
              --impure \
              --gc-roots-dir "$DRV_GCROOTS_DIR" \
              --max-memory-size 2304 \
-             --workers 2 \
+             --workers 32 \
            | jq -rc 'select(.error == null)' \
              >"$DRVINFO" 2>/dev/null || true
 

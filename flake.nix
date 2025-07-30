@@ -18,7 +18,7 @@
         JOB_ATTR=$(jq -r '.attr' <<< "$JSON_LINE")
         JOB_DRV=$(jq -r '.drvPath' <<< "$JSON_LINE")
 
-        nix build \
+        nix-build \
           "''${JOB_DRV}^*" \
           --out-link "$JOB_ATTR" \
           --max-jobs 0 \

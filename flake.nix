@@ -1,8 +1,8 @@
 {
   description = "we have hydra at home :3";
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
-    nixpkgs-master.url = "github:nixos/nixpkgs/master";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -81,8 +81,8 @@
       packages = {
         cacheArmPkgs = cacheDownloadScriptFor "aarch64-linux" nixpkgs;
         cacheX86Pkgs = cacheDownloadScriptFor "x86_64-linux" nixpkgs;
-        cacheSpicyArmPkgs = cacheDownloadScriptFor "aarch64-linux" nixpkgs-master;
-        cacheSpicyX86Pkgs = cacheDownloadScriptFor "x86_64-linux" nixpkgs-master;
+        cacheSpicyArmPkgs = cacheDownloadScriptFor "aarch64-linux" nixpkgs-unstable;
+        cacheSpicyX86Pkgs = cacheDownloadScriptFor "x86_64-linux" nixpkgs-unstable;
       };
 
       apps =

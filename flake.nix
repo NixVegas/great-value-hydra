@@ -50,7 +50,6 @@
             if [ -z "$MEM_PER_WORKER" ]; then
               MEM_PER_WORKER=2304
             fi
-            CACHE_GCROOTS_DIR=$1
             if [[ -z "$CACHE_GCROOTS_DIR" ]]; then
               CACHE_GCROOTS_DIR=$(pwd)
             fi

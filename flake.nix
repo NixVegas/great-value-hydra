@@ -27,11 +27,11 @@
           ;
         hostPkgs = nixpkgs.legacyPackages.${system};
         runNixJob = hostPkgs.writeShellScript "run-nix-job" ''
-          JSON_LINE="$@"
-          JOB_ATTR=$(jq -r '.attr' <<< "$JSON_LINE")
-          JOB_DRV=$(jq -r '.drvPath' <<< "$JSON_LINE")
+          JSON_LINE="$*"
+          JOB_ATTR="$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.attr' <<< "$JSON_LINE")"
+          JOB_DRV="$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.drvPath' <<< "$JSON_LINE")"
 
-          nix-build \
+          exec nix-build \
             "''${JOB_DRV}^*" \
             --out-link "$JOB_ATTR" \
             --max-jobs 0 \
@@ -71,7 +71,7 @@
               --gc-roots-dir "$DRV_GCROOTS_DIR" \
               --max-memory-size "$MEM_PER_WORKER" \
               --workers "$WORKERS" \
-            | ${hostPkgs.jq}/bin/jq -rc 'select(.error == null)' \
+            | ${hostPkgs.lib.getExe hostPkgs.jq} -rc 'select(.error == null)' \
               >"$DRVINFO" 2>/dev/null || true
 
             pushd .

@@ -32,7 +32,7 @@
           JOB_DRV="$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.drvPath' <<< "$JSON_LINE")"
 
           exec nix-build \
-            "''${JOB_DRV}^*" \
+            "$JOB_DRV" \
             --out-link "$JOB_ATTR" \
             --max-jobs 0 \
             --impure \

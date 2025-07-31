@@ -47,8 +47,11 @@
              WORKERS="$(nproc)"
              WORKERS=$((WORKERS/4))
             fi
+            if [ "$WORKERS" -lt 8 ]; then
+              WORKERS=8
+            fi
             if [ -z "$MEM_PER_WORKER" ]; then
-              MEM_PER_WORKER=2304
+              MEM_PER_WORKER=2048
             fi
             if [[ -z "$CACHE_GCROOTS_DIR" ]]; then
               CACHE_GCROOTS_DIR=$(pwd)
@@ -62,17 +65,20 @@
 
             mkdir -p "$BUILT_GCROOTS_DIR" "$DRV_GCROOTS_DIR"
 
-            DRVINFO=$(mktemp)
+            DRVINFO="$(mktemp)"
             echo "Evaluating package set"
 
             ${hostPkgs.nix-eval-jobs}/bin/nix-eval-jobs \
-              --flake '${nixpkgs}#legacyPackages.${system}' \
+              --force-recurse \
               --impure \
               --gc-roots-dir "$DRV_GCROOTS_DIR" \
               --max-memory-size "$MEM_PER_WORKER" \
-              --workers "$WORKERS" \
-            | ${hostPkgs.lib.getExe hostPkgs.jq} -rc 'select(.error == null)' \
-              >"$DRVINFO" 2>/dev/null || true
+              --workers "$WORKERS" ${nixpkgs}/pkgs/top-level/release.nix > "$DRVINFO"
+
+            cat "$DRVINFO" | ${hostPkgs.lib.getExe hostPkgs.jq} -rc 'select(.error == null)' | \
+              ${hostPkgs.moreutils}/bin/sponge "$DRVINFO" 2>/dev/null || true
+
+            echo "About to cache $(cat "$DRVINFO" | wc -l) packages"
 
             pushd .
             cd "$BUILT_GCROOTS_DIR"
@@ -98,10 +104,8 @@
 
         # Scripts to download everything, make GC roots
         packages = {
-          cacheArmPkgs = cacheDownloadScriptFor "aarch64-linux" nixpkgs;
-          cacheX86Pkgs = cacheDownloadScriptFor "x86_64-linux" nixpkgs;
-          cacheSpicyArmPkgs = cacheDownloadScriptFor "aarch64-linux" nixpkgs-unstable;
-          cacheSpicyX86Pkgs = cacheDownloadScriptFor "x86_64-linux" nixpkgs-unstable;
+          cachePkgs = cacheDownloadScriptFor system nixpkgs;
+          cacheSpicyPkgs = cacheDownloadScriptFor system nixpkgs-unstable;
         };
 
         apps =
@@ -112,10 +116,8 @@
             };
           in
           {
-            cacheArmPkgs = mkApp "cacheArmPkgs";
-            cacheX86Pkgs = mkApp "cacheX86Pkgs";
-            cacheSpicyArmPkgs = mkApp "cacheSpicyArmPkgs";
-            cacheSpicyX86Pkgs = mkApp "cacheSpicyX86Pkgs";
+            cachePkgs = mkApp "cachePkgs";
+            cacheSpicyPkgs = mkApp "cacheSpicyPkgs";
           };
       }
     );

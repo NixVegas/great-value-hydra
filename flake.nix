@@ -16,7 +16,7 @@
         runNixJob = hostPkgs.writeShellScript "run-nix-job" ''
           JSON_LINE="$*"
           JOB_ATTR="$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.attr' <<< "$JSON_LINE")"
-          JOB_DRV="$(readlink -- "$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.drvPath' <<< "$JSON_LINE")")"
+          JOB_DRV="$(realpath -- "$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.drvPath' <<< "$JSON_LINE")")"
 
           exec nix-build -E \
             "(import $JOB_DRV).all" \
@@ -30,42 +30,52 @@
         cacheDownloadScriptFor =
           system: nixpkgs:
           hostPkgs.writeShellScript "cache-pkgs" ''
-            if [ -z "$WORKERS" ]; then
-             WORKERS="$(nproc)"
-             WORKERS=$((WORKERS/4))
+            if [ -z "$EVAL_WORKERS" ]; then
+             EVAL_WORKERS="$(nproc)"
+             EVAL_WORKERS=$((EVAL_WORKERS/4))
             fi
-            if [ "$WORKERS" -lt 8 ]; then
-              WORKERS=8
+            if [ "$EVAL_WORKERS" -lt 8 ]; then
+              EVAL_WORKERS=8
             fi
-            if [ -z "$MEM_PER_WORKER" ]; then
-              MEM_PER_WORKER=2048
+            if [ -z "$DL_WORKERS" ]; then
+             DL_WORKERS="$(nproc)"
+             DL_WORKERS=$((DL_WORKERS/4))
+            fi
+            if [ "$DL_WORKERS" -lt 1 ]; then
+              DL_WORKERS=1
+            fi
+            if [ -z "$MEM_PER_EVAL_WORKER" ]; then
+              MEM_PER_EVAL_WORKER=2048
             fi
             if [[ -z "$CACHE_GCROOTS_DIR" ]]; then
-              CACHE_GCROOTS_DIR=$(pwd)
+              CACHE_GCROOTS_DIR="$(pwd)"
             fi
             SHORT_NIX_VSN="${hostPkgs.lib.version}"
 
+            echo "Using $EVAL_WORKERS eval workers, $DL_WORKERS download workers" >&2
+
             set -euo pipefail
-            echo "Caching to $CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/..."
+
+            echo "Caching to $CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/..." >&2
             BUILT_GCROOTS_DIR="$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/built"
             DRV_GCROOTS_DIR="$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/drvs"
 
             mkdir -p "$BUILT_GCROOTS_DIR" "$DRV_GCROOTS_DIR"
 
             DRVINFO="$(mktemp)"
-            echo "Evaluating package set"
+            echo "Evaluating package set" >&2
 
             ${hostPkgs.nix-eval-jobs}/bin/nix-eval-jobs \
               --force-recurse \
               --impure \
               --gc-roots-dir "$DRV_GCROOTS_DIR" \
-              --max-memory-size "$MEM_PER_WORKER" \
-              --workers "$WORKERS" ${nixpkgs}/pkgs/top-level/release.nix > "$DRVINFO"
+              --max-memory-size "$MEM_PER_EVAL_WORKER" \
+              --workers "$EVAL_WORKERS" ${nixpkgs}/pkgs/top-level/release.nix > "$DRVINFO"
 
             cat "$DRVINFO" | ${hostPkgs.lib.getExe hostPkgs.jq} -rc 'select(.error == null)' | \
               ${hostPkgs.moreutils}/bin/sponge "$DRVINFO" 2>/dev/null || true
 
-            echo "About to cache $(cat "$DRVINFO" | wc -l) packages"
+            echo "About to cache $(cat "$DRVINFO" | wc -l) packages" >&2
 
             pushd .
             cd "$BUILT_GCROOTS_DIR"
@@ -73,7 +83,7 @@
             <$DRVINFO \
             nice -n 20 ${hostPkgs.parallel}/bin/parallel \
               --bar --eta \
-              -j"$WORKERS" \
+              -j"$DL_WORKERS" \
               ${runNixJob} '{}'
 
             popd

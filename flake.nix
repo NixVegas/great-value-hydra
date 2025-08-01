@@ -12,27 +12,14 @@
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        inherit (builtins)
-          concatStringsSep
-          concatMap
-          filter
-          seq
-          tryEval
-          ;
-        inherit (nixpkgs.lib)
-          attrsets
-          isAttrs
-          isDerivation
-          strings
-          ;
         hostPkgs = nixpkgs.legacyPackages.${system};
         runNixJob = hostPkgs.writeShellScript "run-nix-job" ''
           JSON_LINE="$*"
           JOB_ATTR="$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.attr' <<< "$JSON_LINE")"
-          JOB_DRV="$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.drvPath' <<< "$JSON_LINE")"
+          JOB_DRV="$(readlink -- "$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.drvPath' <<< "$JSON_LINE")")"
 
-          exec nix-build \
-            "$JOB_DRV" \
+          exec nix-build -E \
+            "(import $JOB_DRV).all" \
             --out-link "$JOB_ATTR" \
             --max-jobs 0 \
             --impure \
@@ -57,8 +44,8 @@
               CACHE_GCROOTS_DIR=$(pwd)
             fi
             SHORT_NIX_VSN="${hostPkgs.lib.version}"
-            set -euo pipefail
 
+            set -euo pipefail
             echo "Caching to $CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/..."
             BUILT_GCROOTS_DIR="$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/built"
             DRV_GCROOTS_DIR="$CACHE_GCROOTS_DIR/$SHORT_NIX_VSN/${system}/drvs"

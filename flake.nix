@@ -112,13 +112,13 @@
               jq -rc 'select(.error == null)' < "$drvinfo" | \
                 sponge "$filtered_drvinfo" 2>/dev/null || true
 
-              echo "Filtering drvinfo at $drvinfo ($(wc -l < "$filtered_drvinfo") packages)" >&2
+              echo "Filtering drvinfo at $drvinfo ($(wc -l < "$drvinfo") packages)" >&2
               cleanup() {
                 rm -f "$filtered_drvinfo"
               }
               trap cleanup EXIT
 
-              echo "About to cache $(wc -l < "$filtered_drvinfo") packages. Godspeed." >&2
+              echo "Filtering done, about to cache $(wc -l < "$filtered_drvinfo") packages. Godspeed." >&2
 
               pushd .
               cd "$built_gcroots_dir"

@@ -98,12 +98,14 @@
                 echo "Note that processes dying here will probably cause a lot of problems." >&2
                 nix_eval_jobs_log="$root_dir/nix-eval-jobs.log"
 
+                echo "nix-eval-jobs started at $(date)" >> "$nix_eval_jobs_log"
                 nix-eval-jobs \
                   --force-recurse \
                   --impure \
                   --gc-roots-dir "$drv_gcroots_dir" \
                   --max-memory-size "$mem_per_worker" \
                   --workers "$num_workers" ${nixpkgs}/pkgs/top-level/release.nix > "$drvinfo" 2> >(tee -a "$nix_eval_jobs_log" >&2)
+                echo "nix-eval-jobs finished at $(date)" >> "$nix_eval_jobs_log"
               fi
 
               filtered_drvinfo="$(mktemp -t great-value-hydra.XXXXXX)"
@@ -121,7 +123,7 @@
               pushd .
               cd "$built_gcroots_dir"
 
-              nice -n 20 parallel \
+              time nice -n 20 parallel \
                 --bar --eta \
                 -j"$DL_WORKERS" \
                 ${runNixJob} '{}' <"$filtered_drvinfo"

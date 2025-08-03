@@ -28,7 +28,7 @@
         '';
 
         cacheDownloadScriptFor =
-          system: nixpkgs:
+          system: theNixpkgs:
           hostPkgs.writeShellApplication {
             name = "great-value-hydra";
             text = ''
@@ -83,7 +83,7 @@
               echo "Using $num_workers eval workers at $mem_per_worker MiB/worker ($((num_workers * mem_per_worker)) MiB, $HEADROOM MiB headroom)." >&2
               echo "Using $DL_WORKERS download workers." >&2
 
-              nixpkgs_ver="${hostPkgs.lib.version}"
+              nixpkgs_ver="${theNixpkgs.lib.version}"
               root_dir="$CACHE_GCROOTS_DIR/$nixpkgs_ver/${system}"
               echo "Caching to $root_dir" >&2
 
@@ -104,7 +104,7 @@
                   --impure \
                   --gc-roots-dir "$drv_gcroots_dir" \
                   --max-memory-size "$mem_per_worker" \
-                  --workers "$num_workers" ${nixpkgs}/pkgs/top-level/release.nix > "$drvinfo" 2> >(tee -a "$nix_eval_jobs_log" >&2)
+                  --workers "$num_workers" ${theNixpkgs}/pkgs/top-level/release.nix > "$drvinfo" 2> >(tee -a "$nix_eval_jobs_log" >&2)
                 echo "nix-eval-jobs finished at $(date)" >> "$nix_eval_jobs_log"
               fi
 

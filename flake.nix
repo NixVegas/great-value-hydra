@@ -63,13 +63,17 @@
               while [ "$num_workers" -gt 1 ]; do
                 # Compute the memory to use for eval.
                 total_mem="$(awk '/MemFree/ { printf "%d\n", int($2/1024) }' /proc/meminfo)"
+                if [ -f /proc/spl/kstat/zfs/arcstats ] ; then
+                  arc="$(awk '/^size/ { print int($3 / 1024 / 1024) }' /proc/spl/kstat/zfs/arcstats)"
+                  total_mem=$((total_mem+arc))
+                fi
                 total_mem=$((total_mem - HEADROOM))
 
                 # Compute the usable memory per worker.
                 mem_per_worker=$((total_mem / num_workers))
                 if [ "$mem_per_worker" -lt "$MIN_MEM_PER_WORKER" ]; then
                   # Converge
-                  echo "rejected: $total_mem mem, $num_workers workers, $mem_per_worker mem per worker" >&2
+                  echo "rejected: $total_mem mem, $num_workers workers, $mem_per_worker mem per worker, min $MIN_MEM_PER_WORKER" >&2
                   num_workers=$(((num_workers * 7) / 8))
                 else
                   break

@@ -14,17 +14,18 @@
       let
         hostPkgs = nixpkgs.legacyPackages.${system};
         runNixJob = hostPkgs.writeShellScript "run-nix-job" ''
-          JSON_LINE="$*"
-          JOB_ATTR="$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.attr' <<< "$JSON_LINE")"
-          JOB_DRV="$(realpath -- "$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.drvPath' <<< "$JSON_LINE")")"
+          json_line="$1"
+          shift
+          job_attr="$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.attr' <<< "$json_line")"
+          job_drv="$(realpath -- "$(${hostPkgs.lib.getExe hostPkgs.jq} -r '.drvPath' <<< "$json_line")")"
 
           nix-build -E \
-            "(import $JOB_DRV).all" \
-            --out-link "$JOB_ATTR" \
+            "(import $job_drv).all" \
+            --out-link "$job_attr" \
             --max-jobs 0 \
             --impure \
             --use-sqlite-wal \
-            --quiet || true
+            --quiet "$@" || true
         '';
 
         cacheDownloadScriptFor =
@@ -48,7 +49,13 @@
                 CACHE_GCROOTS_DIR="$(pwd)"
               fi
 
+              extra_args=("$@")
+              if [[ -v UPSTREAM ]]; then
+                extra_args+=(--option substituters "$UPSTREAM")
+              fi
+
               echo "Great Value Hydra: it's just someone else's Hydra" >&2
+              echo "Using extra nix args: ''${extra_args[*]}" >&2
 
               echo "Checking parallel" >&2
               if ! parallel --citation &>/dev/null </dev/null; then
@@ -130,7 +137,7 @@
               time nice -n 20 parallel \
                 --bar --eta \
                 -j"$DL_WORKERS" \
-                ${runNixJob} '{}' <"$filtered_drvinfo"
+                ${runNixJob} '{}' "''${extra_args[@]}" <"$filtered_drvinfo"
 
               popd
             '';
